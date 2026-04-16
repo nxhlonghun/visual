@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Training outputs
+runs/
+
+# Model weights and large artifacts
+*.pt
+*.pth
+*.onnx
+
+# Local media / test artifacts
+bus.jpg
+
+# IDE / OS files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

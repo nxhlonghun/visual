@@ -1,0 +1,6 @@
+path: D:/task/school/dataset
+train: images/train
+val: images/val
+
+names:
+  0: your_class_name
