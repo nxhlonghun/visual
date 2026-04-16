@@ -214,6 +214,12 @@ cd D:\task\school\ultralytics-src
 python -m pip install -e .
 ```
 
+## 验证安装
+
+```powershell
+yolo detect predict model=yolov8n.pt source="https://ultralytics.com/images/bus.jpg" device=0
+```
+
 ## 模型训练
 
 先用 1 轮快速测试训练流程是否正常：
