@@ -4,6 +4,8 @@ __pycache__/
 
 # Training outputs
 runs/
+dataset/
+!dataset/data.yaml
 
 # Model weights and large artifacts
 *.pt
