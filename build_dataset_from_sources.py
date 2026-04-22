@@ -269,6 +269,7 @@ def build_test_split(
     vis_root: Path,
     fraction: float,
     seed: int,
+    source_mode: str,
 ) -> None:
     random.seed(seed)
     img_val = dst_root / "images" / "val"
@@ -295,25 +296,33 @@ def build_test_split(
         k = min(k, len(lst))
         return random.sample(lst, k)
 
-    take_cw, take_co, take_vp = sample(coco_w), sample(coco_wo), sample(vd_pos)
+    include_coco = source_mode in ("both", "coco")
+    include_visdrone = source_mode in ("both", "visdrone")
+
+    take_cw = sample(coco_w) if include_coco else []
+    take_co = sample(coco_wo) if include_coco else []
+    take_vp = sample(vd_pos) if include_visdrone else []
     print(
-        f"Test split: COCO val {len(coco_imgs)} ({len(coco_w)} w/ person, {len(coco_wo)} w/o) "
+        f"Test split ({source_mode}): COCO val {len(coco_imgs)} ({len(coco_w)} w/ person, {len(coco_wo)} w/o) "
         f"-> test {len(take_cw)} / {len(take_co)}; vd val pos {len(vd_pos)} -> test {len(take_vp)}"
     )
     for img in take_cw + take_co + take_vp:
         move_val_to_test(img, lbl_val / f"{img.stem}.txt", img_test, lbl_test)
 
-    raw_img = vis_root / VIS_VAL_DIR / VIS_IMAGES_DIR
-    raw_ann = vis_root / VIS_VAL_DIR / VIS_ANN_DIR
-    vd_neg: list[Path] = []
-    if raw_img.is_dir() and raw_ann.is_dir():
-        for img in sorted(raw_img.glob("*.jpg")):
-            if not visdrone_ann_has_person(raw_ann / f"{img.stem}.txt"):
-                vd_neg.append(img)
-    take_vn = sample(vd_neg)
-    print(f"Test split: VisDrone raw val no-person {len(vd_neg)} candidates -> test {len(take_vn)}")
-    for img in take_vn:
-        copy_visdrone_neg_to_test(img, img_test, lbl_test)
+    if include_visdrone:
+        raw_img = vis_root / VIS_VAL_DIR / VIS_IMAGES_DIR
+        raw_ann = vis_root / VIS_VAL_DIR / VIS_ANN_DIR
+        vd_neg: list[Path] = []
+        if raw_img.is_dir() and raw_ann.is_dir():
+            for img in sorted(raw_img.glob("*.jpg")):
+                if not visdrone_ann_has_person(raw_ann / f"{img.stem}.txt"):
+                    vd_neg.append(img)
+        take_vn = sample(vd_neg)
+        print(f"Test split: VisDrone raw val no-person {len(vd_neg)} candidates -> test {len(take_vn)}")
+        for img in take_vn:
+            copy_visdrone_neg_to_test(img, img_test, lbl_test)
+    else:
+        print("Test split: VisDrone negatives skipped for source=coco")
 
 
 def write_data_yaml(dst_root: Path, include_test: bool) -> None:
@@ -340,34 +349,46 @@ def main() -> None:
     ap.add_argument("--skip-test", action="store_true", help="Only build train/val; no test split.")
     ap.add_argument("--test-fraction", type=float, default=0.12, help="Fraction per stratum for test.")
     ap.add_argument("--seed", type=int, default=42, help="RNG seed for test sampling.")
+    ap.add_argument(
+        "--source",
+        choices=("both", "coco", "visdrone"),
+        default="both",
+        help="Select which source dataset(s) to process.",
+    )
     args = ap.parse_args()
 
     root = args.dataset.resolve()
     coco_root = root / DEFAULT_COCO_DIR
     vis_root = root / DEFAULT_VISDRONE_DIR
+    use_coco = args.source in ("both", "coco")
+    use_visdrone = args.source in ("both", "visdrone")
 
-    if not (coco_root / COCO_ANN_DIR / COCO_TRAIN_ANN).is_file():
+    if use_coco and not (coco_root / COCO_ANN_DIR / COCO_TRAIN_ANN).is_file():
         raise SystemExit(f"Missing COCO annotations under {coco_root}")
-    if not (vis_root / VIS_TRAIN_DIR / VIS_IMAGES_DIR).is_dir():
+    if use_visdrone and not (vis_root / VIS_TRAIN_DIR / VIS_IMAGES_DIR).is_dir():
         print(f"Warning: VisDrone train not found under {vis_root}; skip VisDrone merge.")
+        use_visdrone = False
+    if not (use_coco or use_visdrone):
+        raise SystemExit("No valid source selected or found to process.")
 
     print("Clearing merged train/val (official source folders are not deleted)...")
     _clear_merged_split_dirs(root, ("train", "val"))
     _remove_label_caches(root)
 
-    convert_coco_split(coco_root, root, COCO_TRAIN_IMAGES_DIR, COCO_TRAIN_ANN, "train")
-    convert_coco_split(coco_root, root, COCO_VAL_IMAGES_DIR, COCO_VAL_ANN, "val")
+    if use_coco:
+        convert_coco_split(coco_root, root, COCO_TRAIN_IMAGES_DIR, COCO_TRAIN_ANN, "train")
+        convert_coco_split(coco_root, root, COCO_VAL_IMAGES_DIR, COCO_VAL_ANN, "val")
 
     vt = vis_root / VIS_TRAIN_DIR
     vv = vis_root / VIS_VAL_DIR
-    if vt.is_dir():
+    if use_visdrone and vt.is_dir():
         merge_visdrone_split(vt, root / "images" / "train", root / "labels" / "train", "train")
-    if vv.is_dir():
+    if use_visdrone and vv.is_dir():
         merge_visdrone_split(vv, root / "images" / "val", root / "labels" / "val", "val")
 
     include_test = not args.skip_test
     if include_test:
-        build_test_split(root, vis_root, args.test_fraction, args.seed)
+        build_test_split(root, vis_root, args.test_fraction, args.seed, args.source)
     else:
         _clear_merged_split_dirs(root, ("test",))
 

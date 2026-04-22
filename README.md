@@ -244,6 +244,32 @@ yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epoch
 yolo detect predict model="D:/task/school/runs/detect/train/weights/best.pt" source="D:/task/school/test.jpg" device=0
 ```
 
+## 数据集构建脚本
+
+`build_dataset_from_sources.py` 支持按来源选择处理数据：
+
+- `--source both`：同时处理 COCO + VisDrone（默认）
+- `--source coco`：只处理 COCO
+- `--source visdrone`：只处理 VisDrone
+
+示例：
+
+```powershell
+python .\build_dataset_from_sources.py --source both
+python .\build_dataset_from_sources.py --source coco
+python .\build_dataset_from_sources.py --source visdrone
+```
+
+处理规则说明：
+
+- 每次运行会先清理并重建合并后的 `images/`、`labels/` 结果目录（不是增量叠加）。
+- `--source coco` 时，`train/val/test` 仅包含 COCO 样本。
+- `--source visdrone` 时，`train/val/test` 仅包含 VisDrone 样本。
+- `--source both` 时，`train/val/test` 同时包含两者样本。
+- 默认会构建 `test`；如不需要可加 `--skip-test`。
+
+如修改了源数据目录名（含内部子目录名），请在脚本顶部常量区调整对应配置。
+
 ## 说明
 
 - `runs/` 目录用于保存训练和预测结果，已在 Git 中忽略。
