@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import shutil
 from collections import defaultdict
@@ -39,7 +40,23 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 # Defaults (override with --dataset)
 # ---------------------------------------------------------------------------
-DEFAULT_DATASET_ROOT = Path(r"D:\task\school\dataset")
+# Default to a path relative to this script so it works across machines.
+DEFAULT_DATASET_ROOT = Path(__file__).resolve().parent / "dataset"
+# Source folder names under dataset root.
+# If you rename source folders, only modify these two constants.
+DEFAULT_COCO_DIR = "coco2017"
+DEFAULT_VISDRONE_DIR = "VisDrone2019"
+# COCO internal names.
+COCO_TRAIN_IMAGES_DIR = "train2017"
+COCO_VAL_IMAGES_DIR = "val2017"
+COCO_ANN_DIR = "annotations"
+COCO_TRAIN_ANN = "instances_train2017.json"
+COCO_VAL_ANN = "instances_val2017.json"
+# VisDrone internal names.
+VIS_TRAIN_DIR = "VisDrone2019-DET-train"
+VIS_VAL_DIR = "VisDrone2019-DET-val"
+VIS_IMAGES_DIR = "images"
+VIS_ANN_DIR = "annotations"
 
 PERSON_CATS = {1, 2}  # VisDrone: pedestrian, people
 
@@ -66,10 +83,18 @@ def _remove_label_caches(root: Path) -> None:
 
 
 def link_or_copy(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         return
     try:
+        # Prefer modern pathlib API when available (Python 3.10+).
         dst.hardlink_to(src)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # Python 3.9-compatible hardlink fallback.
+        os.link(src, dst)
     except OSError:
         shutil.copy2(src, dst)
 
@@ -84,7 +109,7 @@ def convert_coco_split(
     ann_file_name: str,
     out_split: str,
 ) -> int:
-    ann_path = coco_root / "annotations" / ann_file_name
+    ann_path = coco_root / COCO_ANN_DIR / ann_file_name
     data = json.loads(ann_path.read_text(encoding="utf-8"))
     images = {im["id"]: im for im in data["images"]}
     anns_by_image: dict[int, list] = defaultdict(list)
@@ -168,8 +193,8 @@ def merge_visdrone_split(
     dst_labels: Path,
     label: str,
 ) -> tuple[int, int]:
-    img_dir = split_root / "images"
-    ann_dir = split_root / "annotations"
+    img_dir = split_root / VIS_IMAGES_DIR
+    ann_dir = split_root / VIS_ANN_DIR
     if not img_dir.is_dir() or not ann_dir.is_dir():
         print(f"Skip VisDrone {label}: missing images/ or annotations/")
         return 0, 0
@@ -278,8 +303,8 @@ def build_test_split(
     for img in take_cw + take_co + take_vp:
         move_val_to_test(img, lbl_val / f"{img.stem}.txt", img_test, lbl_test)
 
-    raw_img = vis_root / "VisDrone2019-DET-val" / "images"
-    raw_ann = vis_root / "VisDrone2019-DET-val" / "annotations"
+    raw_img = vis_root / VIS_VAL_DIR / VIS_IMAGES_DIR
+    raw_ann = vis_root / VIS_VAL_DIR / VIS_ANN_DIR
     vd_neg: list[Path] = []
     if raw_img.is_dir() and raw_ann.is_dir():
         for img in sorted(raw_img.glob("*.jpg")):
@@ -318,23 +343,23 @@ def main() -> None:
     args = ap.parse_args()
 
     root = args.dataset.resolve()
-    coco_root = root / "coco2017"
-    vis_root = root / "VisDrone2019"
+    coco_root = root / DEFAULT_COCO_DIR
+    vis_root = root / DEFAULT_VISDRONE_DIR
 
-    if not (coco_root / "annotations" / "instances_train2017.json").is_file():
+    if not (coco_root / COCO_ANN_DIR / COCO_TRAIN_ANN).is_file():
         raise SystemExit(f"Missing COCO annotations under {coco_root}")
-    if not (vis_root / "VisDrone2019-DET-train" / "images").is_dir():
+    if not (vis_root / VIS_TRAIN_DIR / VIS_IMAGES_DIR).is_dir():
         print(f"Warning: VisDrone train not found under {vis_root}; skip VisDrone merge.")
 
     print("Clearing merged train/val (official source folders are not deleted)...")
     _clear_merged_split_dirs(root, ("train", "val"))
     _remove_label_caches(root)
 
-    convert_coco_split(coco_root, root, "train2017", "instances_train2017.json", "train")
-    convert_coco_split(coco_root, root, "val2017", "instances_val2017.json", "val")
+    convert_coco_split(coco_root, root, COCO_TRAIN_IMAGES_DIR, COCO_TRAIN_ANN, "train")
+    convert_coco_split(coco_root, root, COCO_VAL_IMAGES_DIR, COCO_VAL_ANN, "val")
 
-    vt = vis_root / "VisDrone2019-DET-train"
-    vv = vis_root / "VisDrone2019-DET-val"
+    vt = vis_root / VIS_TRAIN_DIR
+    vv = vis_root / VIS_VAL_DIR
     if vt.is_dir():
         merge_visdrone_split(vt, root / "images" / "train", root / "labels" / "train", "train")
     if vv.is_dir():

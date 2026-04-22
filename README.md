@@ -114,6 +114,8 @@ torchvision 0.26.0+cu130
 CUDA 13.0
 ```
 
+如果使用的是50系以下的gpu，则将CUDA 13.0更换为CUDA 12.1即可使用
+
 安装命令如下：
 
 ```powershell
