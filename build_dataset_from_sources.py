@@ -28,6 +28,7 @@ Requires: Pillow (PIL) for VisDrone image sizes.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import random
@@ -36,6 +37,10 @@ from collections import defaultdict
 from pathlib import Path
 
 from PIL import Image
+tqdm = None
+_tqdm_spec = importlib.util.find_spec("tqdm")
+if _tqdm_spec is not None:
+    tqdm = importlib.import_module("tqdm").tqdm
 
 # ---------------------------------------------------------------------------
 # Defaults (override with --dataset)
@@ -59,6 +64,19 @@ VIS_IMAGES_DIR = "images"
 VIS_ANN_DIR = "annotations"
 
 PERSON_CATS = {1, 2}  # VisDrone: pedestrian, people
+
+
+def iter_with_progress(iterable, total: int, desc: str, every: int = 2000):
+    """Progress wrapper: tqdm when available, text fallback otherwise."""
+    if tqdm is not None:
+        yield from tqdm(iterable, total=total, desc=desc, unit="img")
+        return
+
+    print(f"{desc}: 0/{total}")
+    for idx, item in enumerate(iterable, 1):
+        if idx == total or idx % every == 0:
+            print(f"{desc}: {idx}/{total}")
+        yield item
 
 
 def _clear_merged_split_dirs(
@@ -126,7 +144,9 @@ def convert_coco_split(
     dst_labels_dir.mkdir(parents=True, exist_ok=True)
 
     n = 0
-    for image_id, image_info in images.items():
+    for image_id, image_info in iter_with_progress(
+        images.items(), total=len(images), desc=f"COCO {out_split}"
+    ):
         file_name = image_info["file_name"]
         img_w = float(image_info["width"])
         img_h = float(image_info["height"])
@@ -201,7 +221,8 @@ def merge_visdrone_split(
     dst_images.mkdir(parents=True, exist_ok=True)
     dst_labels.mkdir(parents=True, exist_ok=True)
     n_ok, n_skip = 0, 0
-    for img_path in sorted(img_dir.glob("*.jpg")):
+    image_paths = sorted(img_dir.glob("*.jpg"))
+    for img_path in iter_with_progress(image_paths, total=len(image_paths), desc=f"VisDrone {label}"):
         stem = img_path.stem
         ann_path = ann_dir / f"{stem}.txt"
         with Image.open(img_path) as im:
@@ -306,7 +327,8 @@ def build_test_split(
         f"Test split ({source_mode}): COCO val {len(coco_imgs)} ({len(coco_w)} w/ person, {len(coco_wo)} w/o) "
         f"-> test {len(take_cw)} / {len(take_co)}; vd val pos {len(vd_pos)} -> test {len(take_vp)}"
     )
-    for img in take_cw + take_co + take_vp:
+    picked = take_cw + take_co + take_vp
+    for img in iter_with_progress(picked, total=len(picked), desc="Build test from val", every=200):
         move_val_to_test(img, lbl_val / f"{img.stem}.txt", img_test, lbl_test)
 
     if include_visdrone:
@@ -314,12 +336,13 @@ def build_test_split(
         raw_ann = vis_root / VIS_VAL_DIR / VIS_ANN_DIR
         vd_neg: list[Path] = []
         if raw_img.is_dir() and raw_ann.is_dir():
-            for img in sorted(raw_img.glob("*.jpg")):
+            raw_imgs = sorted(raw_img.glob("*.jpg"))
+            for img in iter_with_progress(raw_imgs, total=len(raw_imgs), desc="Scan VisDrone val negatives"):
                 if not visdrone_ann_has_person(raw_ann / f"{img.stem}.txt"):
                     vd_neg.append(img)
         take_vn = sample(vd_neg)
         print(f"Test split: VisDrone raw val no-person {len(vd_neg)} candidates -> test {len(take_vn)}")
-        for img in take_vn:
+        for img in iter_with_progress(take_vn, total=len(take_vn), desc="Copy VisDrone negatives", every=200):
             copy_visdrone_neg_to_test(img, img_test, lbl_test)
     else:
         print("Test split: VisDrone negatives skipped for source=coco")

@@ -236,6 +236,53 @@ yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epoch
 yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epochs=100 imgsz=640 device=0
 ```
 
+常用训练参数（可按需叠加）：
+
+- `data`：数据集配置文件路径（`data.yaml`）。
+- `model`：预训练模型或已有权重（如 `yolov8n.pt`、`runs/detect/train/weights/last.pt`）。
+- `epochs`：训练总轮数（例如 `100`、`200`）。
+- `imgsz`：输入分辨率（常用 `640`；更大通常更准但更吃显存）。
+- `batch`：每批图片数（越大训练越快但显存占用越高）。
+- `device`：训练设备（`0` 表示 GPU0，`1` 表示 GPU1，`0,1` 表示多卡）。
+- `workers`：数据加载线程数（Windows 建议从 `4` 或 `8` 开始调）。
+- `save_period`：每隔多少轮额外保存一次 checkpoint（如 `10`）。
+- `project`：结果输出根目录（默认 `runs/detect`）。
+- `name`：本次训练子目录名（如 `train_coco_only`）。
+- `exist_ok`：目录已存在时是否覆盖写入（`True/False`）。
+- `patience`：早停耐心轮数，验证指标长期无提升时提前停止。
+- `seed`：随机种子，用于增强复现实验结果。
+- `resume`：断点续训开关（需要可恢复的 checkpoint）。
+- `optimizer`：优化器策略（`auto`、`SGD`、`AdamW` 等）。
+- `lr0`：初始学习率（`optimizer=auto` 时通常由框架自动调整）。
+- `cos_lr`：是否使用余弦学习率调度（`True/False`）。
+- `amp`：是否开启混合精度（一般保持 `True` 以降低显存占用）。
+
+常见训练命令示例：
+
+1) 固定每 10 轮保存一次，指定训练目录名：
+
+```powershell
+yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epochs=200 imgsz=640 batch=16 device=1 save_period=10 project="D:/task/school/runs/detect" name="train200_mix"
+```
+
+2) 显存紧张时的保守配置：
+
+```powershell
+yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epochs=100 imgsz=512 batch=8 device=0 workers=4
+```
+
+3) 断点续训到更高总轮数（目标总轮数写在 `epochs`）：
+
+```powershell
+yolo detect train resume model="D:/task/school/runs/detect/train5/weights/epoch20.pt" data="D:/task/school/dataset/data.yaml" epochs=50 device=0
+```
+
+提示：
+
+- `epochs` 表示目标总轮数，不是“在当前基础上再加多少轮”。
+- 想减少漏检可适当增加 `imgsz` 或降低推理阈值；想减少误检可提高推理阈值。
+- 若命令很长，PowerShell 多行续行请在每行末尾加反引号 `` ` ``。
+
 ## 模型推理
 
 使用训练完成后的模型进行预测：
@@ -243,6 +290,25 @@ yolo detect train data="D:/task/school/dataset/data.yaml" model=yolov8n.pt epoch
 ```powershell
 yolo detect predict model="D:/task/school/runs/detect/train/weights/best.pt" source="D:/task/school/test.jpg" device=0
 ```
+
+推理/验证阈值常用参数：
+
+- `conf`：置信度阈值（默认常用 `0.25`），越高误检越少、漏检可能越多。
+- `iou`：NMS 阈值（默认常用 `0.7`），用于控制重叠框抑制强度。
+- 说明：训练过程中每轮会执行 `val`，此时也会用到后处理（含 NMS）；你可以在训练命令中传 `conf/iou` 影响评估展示口径，但它不直接参与反向传播更新权重。
+- 建议：先按常规参数完成训练，再在训练后通过 `yolo detect val/predict` 单独调 `conf/iou`，用于选择最终部署阈值。
+
+阈值调节示例：
+
+```powershell
+yolo detect predict model="D:/task/school/runs/detect/train/weights/best.pt" source="D:/task/school/test.jpg" conf=0.25 iou=0.7 device=0
+yolo detect val model="D:/task/school/runs/detect/train/weights/best.pt" data="D:/task/school/dataset/data.yaml" conf=0.25 iou=0.7 device=0
+```
+
+调参经验：
+
+- 漏检偏多：适当降低 `conf`（如 `0.25 -> 0.15`）。
+- 误检偏多：适当提高 `conf`（如 `0.25 -> 0.40`）。
 
 ## 数据集构建脚本
 
